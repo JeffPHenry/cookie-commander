@@ -351,8 +351,21 @@ td.dom:hover { color: #fff; text-decoration: underline; text-decoration-color: v
   font: 600 10.5px var(--mono); text-transform: uppercase; letter-spacing: .09em;
   color: var(--dim); margin: 16px 0 8px;
 }
-.alert-log { list-style: none; display: flex; flex-direction: column; gap: 6px; }
-.alert-log li { font-size: 12px; color: var(--dim); line-height: 1.5; }
+.alert-log {
+  list-style: none; display: flex; flex-direction: column; gap: 2px;
+  max-height: 320px; overflow-y: auto; padding-right: 4px;
+}
+.alert-log li {
+  font-size: 12px; color: var(--dim); line-height: 1.5;
+  display: flex; align-items: baseline; gap: 9px;
+  padding: 5px 7px; border-radius: 7px;
+}
+.alert-log li:hover { background: rgba(255,255,255,.04); }
+.al-when { flex: none; width: 56px; text-align: right; font-size: 10.5px; }
+.al-dom { flex: none; color: var(--caramel); font-size: 12px; }
+.al-msg { flex: 1; min-width: 0; }
+.alert-log .row-menu { flex: none; opacity: 0; }
+.alert-log li:hover .row-menu { opacity: 1; }
 
 /* ---- info page ---- */
 .info-page { width: min(780px, 94vw); max-height: 86vh; overflow-y: auto; }

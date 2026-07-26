@@ -205,7 +205,14 @@ function openTileMenu(key, anchor) {
 
 function domainMenuItems(d) {
   const row = state.rows.find((x) => x.domain === d);
-  if (!row) return [];
+  if (!row) {
+    // no cookies currently stored (e.g. already purged) — offer the rule actions that still make sense
+    return [
+      [state.rules.block.includes(d) ? "✓ Blocked already" : "Block domain", () => blockDomain(d)],
+      ["Auto-purge on startup", () => addRule("autoPurge", d)],
+      [isProtected(d, state.rules) ? "✓ Protected already" : "Protect domain", () => addRule("protected", d)],
+    ];
+  }
   return [
     ["Full info page", () => openInfo(d)],
     [state.rules.block.includes(d) ? "✓ Blocked already" : "Block domain", () => blockDomain(d)],
@@ -573,12 +580,21 @@ async function loadAlerts() {
 
 function renderAlerts() {
   ALERT_KEYS.forEach((k) => { $("al-" + k).checked = !!state.alertCfg[k]; });
-  $("alert-log").innerHTML = state.alertLog.slice(0, 25).map((e) => `
-    <li><span class="mono dim">${fmtAgo(e.at)}</span> ·
-        <span class="lnk mono" data-d="${esc(e.domain)}">${esc(e.domain)}</span> — ${esc(e.msg)}
-        ${e.suppressed ? '<span class="chip t2">muted</span>' : ""}</li>`).join("") ||
+  $("alert-log").innerHTML = state.alertLog.slice(0, 100).map((e) => `
+    <li>
+      <span class="mono dim al-when">${fmtAgo(e.at)}</span>
+      <span class="lnk mono al-dom" data-d="${esc(e.domain)}" title="open info page for ${esc(e.domain)}">${esc(e.domain)}</span>
+      <span class="al-msg">${esc(e.msg)}</span>
+      ${e.suppressed ? '<span class="chip t2">muted</span>' : ""}
+      <button class="row-menu" data-d="${esc(e.domain)}" title="actions" aria-label="actions for ${esc(e.domain)}">⋮</button>
+    </li>`).join("") ||
     '<li class="empty">No alerts yet — they arrive as new trackers show up while you browse.</li>';
 }
+
+$("alert-log").addEventListener("click", (e) => {
+  const rm = e.target.closest(".row-menu");
+  if (rm) { e.stopPropagation(); openMenu(domainMenuItems(rm.dataset.d), rm); }
+});
 
 ALERT_KEYS.forEach((k) =>
   $("al-" + k).addEventListener("change", async (e) => {

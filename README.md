@@ -4,6 +4,12 @@
 
 Right now, ad exchanges are auctioning your attention in real time, and everyone in the chain — the browser companies, the advertisers, the device makers, your ISP — is happy to let it happen. Cookie Commander is where it stops. See every cookie every company keeps on your machine, watch the trackers that ride along with you across the web, and shut them down: block, purge, protect, alarm. 100% local, zero network code — nothing you do here ever leaves your machine.
 
+## The field report
+
+Don't take our word for it. **[Read what one real browser was carrying →](FINDINGS.md)**
+4,916 cookies. 799 domains. Criteo inside 126 different sites. Comscore running a one-cookie-per-site
+census across 109. A credit bureau fingerprinting the browser from 6. All of it named, with receipts.
+
 ## Install (30 seconds)
 
 1. Open `chrome://extensions`

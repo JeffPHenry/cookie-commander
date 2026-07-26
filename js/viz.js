@@ -18,8 +18,17 @@ const TIER_COLOR = {
   "first-party": () => css("--viz-first"),
 };
 
+// The reach graph animates via rAF; every other draw must cancel it or the
+// graph's frame loop keeps repainting the shared canvas over the new chart.
+let graphAnim = null;
+function cancelAnim() {
+  if (graphAnim) { cancelAnimationFrame(graphAnim); graphAnim = null; }
+}
+export function stopViz() { cancelAnim(); }
+
 // ---- squarified treemap ----
 export function drawTreemap(canvas, rows, onHover, onClick, onMenu) {
+  cancelAnim();
   const { ctx, w, h } = setupCanvas(canvas);
   const items = rows
     .filter((r) => r.cookies > 0)
@@ -117,10 +126,8 @@ export function drawTreemap(canvas, rows, onHover, onClick, onMenu) {
 }
 
 // ---- force-directed reach graph ----
-let graphAnim = null;
-
 export function drawGraph(canvas, rows, onHover, onClick, onMenu) {
-  if (graphAnim) cancelAnimationFrame(graphAnim);
+  cancelAnim();
   const { ctx, w, h } = setupCanvas(canvas);
 
   const trackers = rows.filter((r) => r.tier === "tracker").sort((a, b) => b.reach - a.reach).slice(0, 22);
@@ -242,6 +249,7 @@ export function drawGraph(canvas, rows, onHover, onClick, onMenu) {
 
 // ---- activity heatmap ----
 export function drawHeatmap(canvas, rows, activity, onHover, onClick, onMenu) {
+  cancelAnim();
   const { ctx, w, h } = setupCanvas(canvas);
   const DAYS = 14, DAY = 86400000;
   const today0 = new Date(); today0.setHours(0, 0, 0, 0);

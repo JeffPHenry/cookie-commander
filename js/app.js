@@ -2,7 +2,7 @@
 
 import { loadEverything, saveRules, fmtAgo, fmtExpiry, isProtected, removeCookie } from "./data.js";
 import { lookup } from "./trackerdb.js";
-import { drawTreemap, drawGraph, drawHeatmap } from "./viz.js";
+import { drawTreemap, drawGraph, drawHeatmap, stopViz } from "./viz.js";
 import { initEditor, renderEditor, initForm, bulkDeleteRows } from "./editor.js";
 
 const state = {
@@ -335,6 +335,7 @@ $("ex-rows").addEventListener("click", (e) => {
 function openInfo(domain) {
   const r = state.rows.find((x) => x.domain === domain);
   if (!r) { toast(`No cookies currently stored for ${domain}`); return; }
+  $("tooltip").hidden = true; // a canvas click leaves the hover tooltip stranded otherwise
   infoRow = r;
   const info = lookup(r);
   $("info-name").textContent = info.name;
@@ -451,8 +452,17 @@ function renderViz() {
   if (vzMode === "graph") drawGraph(canvas, state.rows, showTip, openInfo, vizMenu);
   else if (vzMode === "treemap") drawTreemap(canvas, state.rows, showTip, openInfo, vizMenu);
   else if (vzMode === "heatmap") drawHeatmap(canvas, state.rows, state.activity, showTip, openInfo, vizMenu);
-  else renderTimeline(tl);
+  else { stopViz(); renderTimeline(tl); }
 }
+
+// redraw canvas visualizations when the window is resized
+let resizeTimer;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    if (!$("panel-visualize").hidden && vzMode !== "timeline") renderViz();
+  }, 200);
+});
 
 function renderTimeline(el) {
   const now = Date.now() / 1000;

@@ -147,7 +147,6 @@ export async function removeCookie(c) {
 }
 
 export async function setCookie(fields, original) {
-  if (original) await removeCookie(original);
   const details = {
     url: fields.url ?? cookieUrl(fields),
     name: fields.name,
@@ -160,7 +159,32 @@ export async function setCookie(fields, original) {
   if (fields.domain.startsWith(".")) details.domain = fields.domain;
   if (fields.expirationDate) details.expirationDate = fields.expirationDate;
   if (fields.partitionKey) details.partitionKey = fields.partitionKey;
-  return chrome.cookies.set(details);
+
+  // Only remove the original when its identity key changed — a same-key set()
+  // overwrites in place. And if the set fails after a removal, put the
+  // original back so an invalid edit can't destroy the cookie.
+  const keyChanged = original && (
+    original.name !== details.name ||
+    original.domain !== fields.domain ||
+    original.path !== details.path
+  );
+  if (keyChanged) await removeCookie(original);
+  let res = null, err = null;
+  try { res = await chrome.cookies.set(details); } catch (e) { err = e; }
+  if (!res && keyChanged) await restoreCookie(original).catch(() => {});
+  if (err) throw err;
+  return res;
+}
+
+function restoreCookie(c) {
+  const d = {
+    url: cookieUrl(c), name: c.name, value: c.value, path: c.path,
+    secure: c.secure, httpOnly: c.httpOnly, sameSite: c.sameSite,
+  };
+  if (c.domain.startsWith(".")) d.domain = c.domain;
+  if (!c.session && c.expirationDate) d.expirationDate = c.expirationDate;
+  if (c.partitionKey) d.partitionKey = c.partitionKey;
+  return chrome.cookies.set(d);
 }
 
 export function fmtAgo(ms) {

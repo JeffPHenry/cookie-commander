@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cookie Commander</title>
+<link rel="stylesheet" href="dashboard.css" />
+</head>
+<body>
+
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <span class="brand-mark"></span>
+      <h1>Cookie <em>Commander</em></h1>
+    </div>
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-tab="overview" role="tab" aria-selected="true">Overview</button>
+      <button class="tab" data-tab="explore" role="tab" aria-selected="false">Explore</button>
+      <button class="tab" data-tab="visualize" role="tab" aria-selected="false">Visualize</button>
+      <button class="tab" data-tab="editor" role="tab" aria-selected="false">Editor</button>
+      <button class="tab" data-tab="rules" role="tab" aria-selected="false">Rules</button>
+    </nav>
+    <button class="btn ghost" id="refresh">↻ refresh</button>
+  </header>
+
+  <!-- OVERVIEW -->
+  <main class="panel active" id="panel-overview">
+    <div class="tiles" id="ov-tiles"></div>
+    <div class="cols3">
+      <section class="card">
+        <h2>Most viewed <span class="h-sub">history × cookies</span></h2>
+        <ol class="ranked" id="ov-viewed"></ol>
+      </section>
+      <section class="card">
+        <h2>Most active <span class="h-sub">cookie writes, 24h</span></h2>
+        <ol class="ranked" id="ov-active"></ol>
+      </section>
+      <section class="card">
+        <h2>Most recent <span class="h-sub">last cookie write</span></h2>
+        <ol class="ranked" id="ov-recent"></ol>
+      </section>
+    </div>
+    <section class="card">
+      <h2>Widest-reach trackers <span class="h-sub">followed you across the most sites</span></h2>
+      <ol class="ranked wide" id="ov-trackers"></ol>
+    </section>
+  </main>
+
+  <!-- EXPLORE -->
+  <main class="panel" id="panel-explore" hidden>
+    <div class="controls">
+      <input type="search" id="ex-q" placeholder="search domains…" aria-label="Search domains" />
+      <div class="segs" id="ex-tier">
+        <button class="seg on" data-f="all">all</button>
+        <button class="seg" data-f="tracker">trackers</button>
+        <button class="seg" data-f="shared">shared</button>
+        <button class="seg" data-f="first-party">first-party</button>
+      </div>
+      <span class="mono dim" id="ex-count"></span>
+      <button class="btn danger" id="ex-nuke">delete all shown</button>
+    </div>
+    <div class="table-scroll card">
+      <table id="ex-table">
+        <thead><tr>
+          <th data-k="domain">domain</th>
+          <th data-k="tier">type</th>
+          <th data-k="cookies" class="num" data-dir="desc">cookies</th>
+          <th data-k="reach" class="num">reach</th>
+          <th data-k="visits" class="num">visits</th>
+          <th data-k="lastVisit" class="num">last visit</th>
+          <th data-k="writes24h" class="num">writes 24h</th>
+          <th data-k="lastWrite" class="num">last write</th>
+          <th data-k="expired" class="num">expired</th>
+          <th data-k="maxExpiry" class="num">lives until</th>
+          <th class="num" aria-label="actions"></th>
+        </tr></thead>
+        <tbody id="ex-rows"></tbody>
+      </table>
+    </div>
+  </main>
+
+  <!-- VISUALIZE -->
+  <main class="panel" id="panel-visualize" hidden>
+    <div class="controls">
+      <div class="segs" id="vz-pick">
+        <button class="seg on" data-v="graph">reach graph</button>
+        <button class="seg" data-v="treemap">treemap</button>
+        <button class="seg" data-v="timeline">expiry timeline</button>
+        <button class="seg" data-v="heatmap">activity heatmap</button>
+      </div>
+      <span class="dim" id="vz-note"></span>
+    </div>
+    <div class="card viz-stage">
+      <canvas id="vz-canvas"></canvas>
+      <div id="vz-timeline" class="timeline" hidden></div>
+    </div>
+  </main>
+
+  <!-- EDITOR -->
+  <main class="panel" id="panel-editor" hidden>
+    <div class="controls">
+      <input type="search" id="ed-search" placeholder="find a domain…" aria-label="Find domain" />
+      <button class="btn accent" id="ed-new">+ new cookie</button>
+    </div>
+    <div id="ed-domains" class="ed-list"></div>
+  </main>
+
+  <!-- RULES -->
+  <main class="panel" id="panel-rules" hidden>
+    <section class="card">
+      <h2>Alarm mode <span class="h-sub">desktop notifications with block / delete buttons</span></h2>
+      <div class="alert-opts">
+        <label class="opt master"><input type="checkbox" id="al-enabled" /> alerts enabled</label>
+        <label class="opt"><input type="checkbox" id="al-newTracker" /> new tracker — a domain's cookies now reach 5+ sites</label>
+        <label class="opt"><input type="checkbox" id="al-crossSite" /> cross-site cookie planted by a domain you never visited</label>
+        <label class="opt"><input type="checkbox" id="al-burst" /> write burst — 60+ cookie writes from one domain in an hour</label>
+      </div>
+      <h3 class="log-head">Recent alerts</h3>
+      <ul class="alert-log" id="alert-log"></ul>
+    </section>
+    <div class="cols3">
+      <section class="card rule-card" data-rule="block">
+        <h2>Block list</h2>
+        <p class="dim">Cookies from these domains are deleted the instant a site sets them.</p>
+        <ul class="rule-list"></ul>
+        <form class="rule-add"><input placeholder="doubleclick.net" /><button class="btn accent sm">add</button></form>
+      </section>
+      <section class="card rule-card" data-rule="autoPurge">
+        <h2>Auto-purge</h2>
+        <p class="dim">Wiped on every browser startup. Good for trackers you can't block outright.</p>
+        <ul class="rule-list"></ul>
+        <form class="rule-add"><input placeholder="criteo.com" /><button class="btn accent sm">add</button></form>
+      </section>
+      <section class="card rule-card" data-rule="protected">
+        <h2>Protected</h2>
+        <p class="dim">Bulk operations skip these. Your banks and brokers live here — deleting their cookies logs you out mid-session.</p>
+        <ul class="rule-list"></ul>
+        <form class="rule-add"><input placeholder="chase.com" /><button class="btn accent sm">add</button></form>
+      </section>
+    </div>
+    <section class="card">
+      <h2>One-click presets</h2>
+      <div class="preset-row">
+        <button class="btn accent" id="rule-preset-trackers">Block all current trackers (reach ≥ 5)</button>
+        <button class="btn ghost" id="rule-preset-expired">Delete every already-expired cookie</button>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="ctx-menu" class="ctx-menu" hidden></div>
+<div id="tooltip" class="tooltip" hidden></div>
+<div id="toast" class="toast" hidden></div>
+
+<dialog id="info-dialog" class="info-page">
+  <div class="info-head">
+    <div>
+      <h2 id="info-name"></h2>
+      <div class="info-chips"><span class="chip t2" id="info-cat"></span><span class="mono dim" id="info-domain"></span></div>
+    </div>
+    <button class="btn ghost sm" id="info-close" aria-label="close">✕</button>
+  </div>
+  <p id="info-desc"></p>
+  <div class="stats-grid" id="info-grid"></div>
+  <div id="info-sites-wrap">
+    <h3>Seen inside these sites</h3>
+    <div class="site-chips" id="info-sites"></div>
+  </div>
+  <div>
+    <h3>Cookies stored (<span id="info-ckcount"></span>)</h3>
+    <div id="info-cookies" class="info-cookies"></div>
+  </div>
+  <div class="info-actions">
+    <a class="btn ghost sm" id="info-search" target="_blank" rel="noopener noreferrer">search the web ↗</a>
+    <span class="spacer"></span>
+    <button class="btn sm" id="info-block">block domain</button>
+    <button class="btn danger sm" id="info-delete">delete all cookies</button>
+  </div>
+</dialog>
+
+<dialog id="ed-dialog">
+  <form id="ed-form" method="dialog">
+    <h2 id="ed-form-title">Cookie</h2>
+    <label>domain <input name="domain" required placeholder=".example.com" class="mono" /></label>
+    <label>name <input name="name" required class="mono" /></label>
+    <label>value <textarea name="value" rows="3" class="mono"></textarea></label>
+    <div class="form-row">
+      <label>path <input name="path" value="/" class="mono" /></label>
+      <label>expires <input name="expiry" type="datetime-local" class="mono" /></label>
+    </div>
+    <div class="form-row checks">
+      <label><input type="checkbox" name="secure" /> secure</label>
+      <label><input type="checkbox" name="httpOnly" /> httpOnly</label>
+      <label>sameSite
+        <select name="sameSite">
+          <option value="unspecified">unspecified</option>
+          <option value="lax">lax</option>
+          <option value="strict">strict</option>
+          <option value="no_restriction">none</option>
+        </select>
+      </label>
+    </div>
+    <div class="form-row end">
+      <button type="button" class="btn ghost" id="ed-cancel">cancel</button>
+      <button type="submit" class="btn accent">save</button>
+    </div>
+  </form>
+</dialog>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

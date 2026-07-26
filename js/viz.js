@@ -1,0 +1,342 @@
+// Canvas visualizations: treemap, reach graph, heatmap. Timeline is DOM (in app.js).
+
+const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+function setupCanvas(canvas) {
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  const ctx = canvas.getContext("2d");
+  ctx.scale(dpr, dpr);
+  return { ctx, w: rect.width, h: rect.height };
+}
+
+const TIER_COLOR = {
+  tracker: () => css("--viz-tracker"),
+  shared: () => css("--viz-shared"),
+  "first-party": () => css("--viz-first"),
+};
+
+// ---- squarified treemap ----
+export function drawTreemap(canvas, rows, onHover, onClick, onMenu) {
+  const { ctx, w, h } = setupCanvas(canvas);
+  const items = rows
+    .filter((r) => r.cookies > 0)
+    .sort((a, b) => b.cookies - a.cookies)
+    .slice(0, 120)
+    .map((r) => ({ r, v: r.cookies }));
+  const total = items.reduce((a, i) => a + i.v, 0);
+  const rects = [];
+
+  function layout(list, x, y, ww, hh) {
+    if (!list.length) return;
+    if (list.length === 1) { rects.push({ ...list[0], x, y, w: ww, h: hh }); return; }
+    let best = 1, bestRatio = Infinity;
+    const sum = list.reduce((a, i) => a + i.v, 0);
+    for (let k = 1; k <= list.length; k++) {
+      const part = list.slice(0, k).reduce((a, i) => a + i.v, 0);
+      const frac = part / sum;
+      const side = Math.min(ww, hh);
+      const other = (ww >= hh ? ww : hh) * frac;
+      const worst = Math.max(
+        ...list.slice(0, k).map((i) => {
+          const cell = (i.v / part) * side * other;
+          const a = other, b = cell / other;
+          return Math.max(a / b, b / a);
+        })
+      );
+      if (worst <= bestRatio) { bestRatio = worst; best = k; } else break;
+    }
+    const part = list.slice(0, best).reduce((a, i) => a + i.v, 0);
+    const frac = part / sum;
+    if (ww >= hh) {
+      const stripW = ww * frac;
+      let cy = y;
+      for (const i of list.slice(0, best)) {
+        const ch = (i.v / part) * hh;
+        rects.push({ ...i, x, y: cy, w: stripW, h: ch });
+        cy += ch;
+      }
+      layout(list.slice(best), x + stripW, y, ww - stripW, hh);
+    } else {
+      const stripH = hh * frac;
+      let cx = x;
+      for (const i of list.slice(0, best)) {
+        const cw = (i.v / part) * ww;
+        rects.push({ ...i, x: cx, y, w: cw, h: stripH });
+        cx += cw;
+      }
+      layout(list.slice(best), x, y + stripH, ww, hh - stripH);
+    }
+  }
+  layout(items, 0, 0, w, h);
+
+  ctx.clearRect(0, 0, w, h);
+  for (const rc of rects) {
+    const base = TIER_COLOR[rc.r.tier]();
+    const g = ctx.createLinearGradient(rc.x, rc.y, rc.x, rc.y + rc.h);
+    g.addColorStop(0, base + "e6");
+    g.addColorStop(1, base + "99");
+    ctx.fillStyle = g;
+    ctx.fillRect(rc.x + 1, rc.y + 1, Math.max(rc.w - 2, 0), Math.max(rc.h - 2, 0));
+    // shine
+    ctx.fillStyle = "rgba(255,255,255,.14)";
+    ctx.fillRect(rc.x + 1, rc.y + 1, Math.max(rc.w - 2, 0), Math.min(3, rc.h - 2));
+    if (rc.w > 68 && rc.h > 26) {
+      ctx.fillStyle = css("--viz-label");
+      ctx.font = "600 11px ui-monospace, Menlo, monospace";
+      const label = rc.r.domain.length > rc.w / 6.6 ? rc.r.domain.slice(0, Math.floor(rc.w / 6.6) - 1) + "…" : rc.r.domain;
+      ctx.fillText(label, rc.x + 7, rc.y + 16);
+      ctx.fillStyle = css("--viz-label-dim");
+      ctx.font = "10px ui-monospace, Menlo, monospace";
+      ctx.fillText(rc.r.cookies + " cookies", rc.x + 7, rc.y + 29);
+    }
+  }
+
+  const hitAt = (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    return rects.find((rc) => mx >= rc.x && mx <= rc.x + rc.w && my >= rc.y && my <= rc.y + rc.h);
+  };
+  canvas.onmousemove = (e) => {
+    const hit = hitAt(e);
+    canvas.style.cursor = hit ? "pointer" : "default";
+    onHover(hit ? hit.r : null, e.clientX, e.clientY);
+  };
+  canvas.onmouseleave = () => onHover(null);
+  canvas.onclick = (e) => {
+    const hit = hitAt(e);
+    if (hit && onClick) onClick(hit.r.domain);
+  };
+  canvas.oncontextmenu = (e) => {
+    e.preventDefault();
+    const hit = hitAt(e);
+    if (hit && onMenu) onMenu(hit.r.domain, e.clientX, e.clientY);
+  };
+}
+
+// ---- force-directed reach graph ----
+let graphAnim = null;
+
+export function drawGraph(canvas, rows, onHover, onClick, onMenu) {
+  if (graphAnim) cancelAnimationFrame(graphAnim);
+  const { ctx, w, h } = setupCanvas(canvas);
+
+  const trackers = rows.filter((r) => r.tier === "tracker").sort((a, b) => b.reach - a.reach).slice(0, 22);
+  const siteCount = new Map();
+  for (const t of trackers)
+    for (const s of t.reachSites) siteCount.set(s, (siteCount.get(s) ?? 0) + 1);
+  const sites = [...siteCount.entries()].sort((a, b) => b[1] - a[1]).slice(0, 90).map(([s]) => s);
+  const siteSet = new Set(sites);
+
+  const nodes = [
+    ...trackers.map((t, i) => ({
+      id: t.domain, type: "tracker", row: t,
+      r: 7 + Math.sqrt(t.reach) * 1.6,
+      x: w / 2 + Math.cos((i / trackers.length) * 6.28) * 60,
+      y: h / 2 + Math.sin((i / trackers.length) * 6.28) * 60,
+      vx: 0, vy: 0,
+    })),
+    ...sites.map((s, i) => ({
+      id: s, type: "site",
+      label: s.replace(/^https?:\/\//, ""),
+      r: 3.5 + siteCount.get(s) * 0.55,
+      x: w / 2 + Math.cos((i / sites.length) * 6.28) * Math.min(w, h) * 0.38,
+      y: h / 2 + Math.sin((i / sites.length) * 6.28) * Math.min(w, h) * 0.38,
+      vx: 0, vy: 0,
+    })),
+  ];
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const edges = [];
+  for (const t of trackers)
+    for (const s of t.reachSites)
+      if (siteSet.has(s)) edges.push([byId.get(t.domain), byId.get(s)]);
+
+  let ticks = 0;
+  function step() {
+    // repulsion (grid-free O(n²), n≤112 is fine)
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const a = nodes[i], b = nodes[j];
+        let dx = a.x - b.x, dy = a.y - b.y;
+        let d2 = dx * dx + dy * dy;
+        if (d2 < 1) { dx = Math.sin(i * 7 + j); dy = Math.cos(i * 3 - j); d2 = 1; }
+        const f = 900 / d2;
+        const d = Math.sqrt(d2);
+        a.vx += (dx / d) * f; a.vy += (dy / d) * f;
+        b.vx -= (dx / d) * f; b.vy -= (dy / d) * f;
+      }
+    }
+    // springs
+    for (const [a, b] of edges) {
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const d = Math.sqrt(dx * dx + dy * dy) || 1;
+      const f = (d - 70) * 0.004;
+      a.vx += (dx / d) * f; a.vy += (dy / d) * f;
+      b.vx -= (dx / d) * f; b.vy -= (dy / d) * f;
+    }
+    // center pull + integrate
+    for (const n of nodes) {
+      n.vx += (w / 2 - n.x) * 0.0015;
+      n.vy += (h / 2 - n.y) * 0.0015;
+      n.vx *= 0.82; n.vy *= 0.82;
+      n.x = Math.max(n.r, Math.min(w - n.r, n.x + n.vx));
+      n.y = Math.max(n.r, Math.min(h - n.r, n.y + n.vy));
+    }
+
+    ctx.clearRect(0, 0, w, h);
+    ctx.strokeStyle = css("--viz-edge");
+    ctx.lineWidth = 0.6;
+    ctx.beginPath();
+    for (const [a, b] of edges) { ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); }
+    ctx.stroke();
+
+    for (const n of nodes) {
+      const color = n.type === "tracker" ? css("--viz-tracker") : css("--viz-site");
+      const g = ctx.createRadialGradient(n.x - n.r / 3, n.y - n.r / 3, 0, n.x, n.y, n.r);
+      g.addColorStop(0, "#ffffff55");
+      g.addColorStop(0.25, color);
+      g.addColorStop(1, color + "aa");
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, n.r, 0, 6.29);
+      ctx.fill();
+      if (n.type === "tracker") {
+        ctx.shadowColor = color; ctx.shadowBlur = 12;
+        ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, 6.29); ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = css("--viz-label");
+        ctx.font = "600 10.5px ui-monospace, Menlo, monospace";
+        ctx.fillText(n.id, n.x + n.r + 4, n.y + 3);
+      }
+    }
+
+    if (++ticks < 260) graphAnim = requestAnimationFrame(step);
+  }
+  step();
+
+  const hitAt = (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    return nodes.find((n) => (mx - n.x) ** 2 + (my - n.y) ** 2 <= (n.r + 3) ** 2);
+  };
+  canvas.onmousemove = (e) => {
+    const hit = hitAt(e);
+    canvas.style.cursor = hit?.type === "tracker" ? "pointer" : "default";
+    if (hit?.type === "tracker") onHover(hit.row, e.clientX, e.clientY);
+    else if (hit) onHover({ domain: hit.label, siteNode: true, trackers: siteCount.get(hit.id) }, e.clientX, e.clientY);
+    else onHover(null);
+  };
+  canvas.onmouseleave = () => onHover(null);
+  canvas.onclick = (e) => {
+    const hit = hitAt(e);
+    if (hit?.type === "tracker" && onClick) onClick(hit.row.domain);
+  };
+  canvas.oncontextmenu = (e) => {
+    e.preventDefault();
+    const hit = hitAt(e);
+    if (hit?.type === "tracker" && onMenu) onMenu(hit.row.domain, e.clientX, e.clientY);
+  };
+}
+
+// ---- activity heatmap ----
+export function drawHeatmap(canvas, rows, activity, onHover, onClick, onMenu) {
+  const { ctx, w, h } = setupCanvas(canvas);
+  const DAYS = 14, DAY = 86400000;
+  const today0 = new Date(); today0.setHours(0, 0, 0, 0);
+  const start = today0.getTime() - (DAYS - 1) * DAY;
+
+  const active = rows
+    .filter((r) => r.writesTotal > 0)
+    .sort((a, b) => b.writesTotal - a.writesTotal)
+    .slice(0, 20);
+
+  ctx.clearRect(0, 0, w, h);
+  if (!active.length) {
+    ctx.fillStyle = css("--viz-label-dim");
+    ctx.font = "13px ui-monospace, Menlo, monospace";
+    ctx.fillText("No activity recorded yet — the tracker logs cookie writes from install onward.", 20, 40);
+    ctx.fillText("Browse for a bit and come back.", 20, 62);
+    canvas.onmousemove = null;
+    return;
+  }
+
+  const labelW = 190, cellGap = 3;
+  const cellW = (w - labelW - 20) / DAYS - cellGap;
+  const cellH = Math.min(22, (h - 30) / active.length - cellGap);
+  let max = 1;
+  const grid = active.map((r) => {
+    const days = new Array(DAYS).fill(0);
+    for (const [hr, n] of Object.entries(activity[r.domain] ?? {})) {
+      const idx = Math.floor((Number(hr) - start) / DAY);
+      if (idx >= 0 && idx < DAYS) days[idx] += n;
+    }
+    max = Math.max(max, ...days);
+    return { r, days };
+  });
+
+  const cells = [];
+  grid.forEach((row, i) => {
+    const y = 24 + i * (cellH + cellGap);
+    ctx.fillStyle = css("--viz-label");
+    ctx.font = "11px ui-monospace, Menlo, monospace";
+    const name = row.r.domain.length > 26 ? row.r.domain.slice(0, 25) + "…" : row.r.domain;
+    ctx.fillText(name, 8, y + cellH / 2 + 4);
+    row.days.forEach((n, dIdx) => {
+      const x = labelW + dIdx * (cellW + cellGap);
+      const t = n / max;
+      ctx.fillStyle = n === 0 ? css("--viz-cell-empty") : heatColor(t);
+      ctx.beginPath();
+      ctx.roundRect(x, y, cellW, cellH, 3);
+      ctx.fill();
+      if (n > 0) {
+        ctx.fillStyle = "rgba(255,255,255,.12)";
+        ctx.beginPath();
+        ctx.roundRect(x, y, cellW, Math.min(3, cellH), 3);
+        ctx.fill();
+      }
+      cells.push({ x, y, w: cellW, h: cellH, domain: row.r.domain, n, day: new Date(start + dIdx * DAY) });
+    });
+  });
+
+  ctx.fillStyle = css("--viz-label-dim");
+  ctx.font = "10px ui-monospace, Menlo, monospace";
+  for (let d = 0; d < DAYS; d += 2) {
+    const dt = new Date(start + d * DAY);
+    ctx.fillText(`${dt.getMonth() + 1}/${dt.getDate()}`, labelW + d * (cellW + cellGap), 14);
+  }
+
+  const hitAt = (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    return cells.find((c) => mx >= c.x && mx <= c.x + c.w && my >= c.y && my <= c.y + c.h);
+  };
+  canvas.onmousemove = (e) => {
+    const hit = hitAt(e);
+    canvas.style.cursor = hit ? "pointer" : "default";
+    onHover(hit ? { heatCell: true, ...hit } : null, e.clientX, e.clientY);
+  };
+  canvas.onmouseleave = () => onHover(null);
+  canvas.onclick = (e) => {
+    const hit = hitAt(e);
+    if (hit && onClick) onClick(hit.domain);
+  };
+  canvas.oncontextmenu = (e) => {
+    e.preventDefault();
+    const hit = hitAt(e);
+    if (hit && onMenu) onMenu(hit.domain, e.clientX, e.clientY);
+  };
+}
+
+function heatColor(t) {
+  // caramel → hot rose ramp
+  const stops = [
+    [58, 46, 32], [140, 84, 26], [214, 128, 42], [240, 100, 90], [255, 72, 128],
+  ];
+  const f = t * (stops.length - 1);
+  const i = Math.min(Math.floor(f), stops.length - 2);
+  const k = f - i;
+  const c = stops[i].map((v, ch) => Math.round(v + (stops[i + 1][ch] - v) * k));
+  return `rgb(${c[0]},${c[1]},${c[2]})`;
+}

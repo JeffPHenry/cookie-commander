@@ -92,15 +92,7 @@ export function drawTreemap(canvas, rows, onHover, onClick, onMenu) {
     // shine
     ctx.fillStyle = "rgba(255,255,255,.14)";
     ctx.fillRect(rc.x + 1, rc.y + 1, Math.max(rc.w - 2, 0), Math.min(3, rc.h - 2));
-    if (rc.w > 68 && rc.h > 26) {
-      ctx.fillStyle = css("--viz-label");
-      ctx.font = "600 11px ui-monospace, Menlo, monospace";
-      const label = rc.r.domain.length > rc.w / 6.6 ? rc.r.domain.slice(0, Math.floor(rc.w / 6.6) - 1) + "…" : rc.r.domain;
-      ctx.fillText(label, rc.x + 7, rc.y + 16);
-      ctx.fillStyle = css("--viz-label-dim");
-      ctx.font = "10px ui-monospace, Menlo, monospace";
-      ctx.fillText(rc.r.cookies + " cookies", rc.x + 7, rc.y + 29);
-    }
+    drawTreemapLabel(ctx, rc);
   }
 
   const hitAt = (e) => {
@@ -123,6 +115,38 @@ export function drawTreemap(canvas, rows, onHover, onClick, onMenu) {
     const hit = hitAt(e);
     if (hit && onMenu) onMenu(hit.r.domain, e.clientX, e.clientY);
   };
+}
+
+// Adaptive treemap labels: font shrinks with the tile, tall slivers rotate
+// vertical, and only boxes too small for ~3 characters stay tooltip-only.
+function drawTreemapLabel(ctx, rc) {
+  const vertical = rc.h > rc.w * 1.5 && rc.w < 44 && rc.h > 40;
+  const availW = (vertical ? rc.h : rc.w) - 8;
+  const availH = (vertical ? rc.w : rc.h) - 4;
+  if (availW < 13 || availH < 8) return;
+  const fs = Math.max(7, Math.min(11, availH / 2.2, availW / 4));
+  const maxChars = Math.floor(availW / (fs * 0.62));
+  if (maxChars < 3) return;
+  const name = rc.r.domain.length > maxChars
+    ? rc.r.domain.slice(0, Math.max(2, maxChars - 1)) + "…"
+    : rc.r.domain;
+  ctx.save();
+  ctx.font = `600 ${fs}px ui-monospace, Menlo, monospace`;
+  ctx.fillStyle = css("--viz-label");
+  if (vertical) {
+    ctx.translate(rc.x + rc.w / 2 + fs * 0.35, rc.y + rc.h - 5);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillText(name, 0, 0);
+  } else {
+    ctx.fillText(name, rc.x + 4, rc.y + fs + 3);
+    const cfs = Math.max(6.5, fs - 1.5);
+    if (rc.h > fs + cfs + 12 && maxChars >= 5) {
+      ctx.fillStyle = css("--viz-label-dim");
+      ctx.font = `${cfs}px ui-monospace, Menlo, monospace`;
+      ctx.fillText(String(rc.r.cookies) + (maxChars > 12 ? " cookies" : ""), rc.x + 4, rc.y + fs + cfs + 7);
+    }
+  }
+  ctx.restore();
 }
 
 // ---- force-directed reach graph ----

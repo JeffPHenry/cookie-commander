@@ -569,6 +569,14 @@ async function deleteExpired() {
 }
 $("rule-preset-expired").addEventListener("click", deleteExpired);
 
+async function purgeBlocked() {
+  const rows = state.rows.filter((r) =>
+    state.rules.block.some((b) => r.domain === b || r.domain.endsWith("." + b)));
+  if (!rows.length) { toast("No stored cookies from blocked domains — the block is holding"); return; }
+  bulkDeleteRows(rows, "all blocked domains");
+}
+$("rule-preset-purgeblocked").addEventListener("click", purgeBlocked);
+
 // ---- alarm mode settings ----
 const ALERT_KEYS = ["enabled", "newTracker", "crossSite", "burst"];
 

@@ -64,6 +64,7 @@ function siteHost(topLevelSite) {
 let buffer = {};        // { domain: { hourEpochMs: count } }
 let pendingReach = {};  // { domain: Set(topLevelSite) }
 let pendingCross = {};  // { domain: topLevelSite } — first third-party-context sighting this window
+let blockedBuffer = {}; // { blockRuleDomain: killCountThisWindow }
 
 chrome.cookies.onChanged.addListener(async ({ cookie, removed, cause }) => {
   const dom = bare(cookie.domain);
@@ -83,7 +84,11 @@ chrome.cookies.onChanged.addListener(async ({ cookie, removed, cause }) => {
 
   if (cause === "explicit") {
     const rules = await cfg("rules", DEFAULT_RULES);
-    if (matches(cookie.domain, rules.block)) removeCookie(cookie);
+    const rule = (rules.block ?? []).find((r) => dom === r || dom.endsWith("." + r));
+    if (rule) {
+      removeCookie(cookie);
+      blockedBuffer[rule] = (blockedBuffer[rule] ?? 0) + 1;
+    }
   }
 });
 
@@ -96,12 +101,21 @@ async function flush() {
   const pendingAct = buffer; buffer = {};
   const pReach = pendingReach; pendingReach = {};
   const pCross = pendingCross; pendingCross = {};
+  const pBlocked = blockedBuffer; blockedBuffer = {};
 
-  const store = await chrome.storage.local.get(["activity", "reachSeen", "alertSeen", "alertLog"]);
+  const store = await chrome.storage.local.get(["activity", "reachSeen", "alertSeen", "alertLog", "blockStats"]);
   const activity = store.activity ?? {};
   const reachSeen = store.reachSeen ?? {};
   const alertSeen = store.alertSeen ?? {};
   const alertLog = store.alertLog ?? [];
+  const blockStats = store.blockStats ?? {};
+
+  // tally kills per block rule
+  for (const [rule, n] of Object.entries(pBlocked)) {
+    const s = (blockStats[rule] ??= { n: 0, last: 0 });
+    s.n += n;
+    s.last = Date.now();
+  }
 
   // 1. merge activity + prune
   for (const [dom, hours] of Object.entries(pendingAct)) {
@@ -189,7 +203,7 @@ async function flush() {
   }
 
   await chrome.storage.local.set({
-    activity, reachSeen, alertSeen, alertLog: alertLog.slice(0, 100),
+    activity, reachSeen, alertSeen, alertLog: alertLog.slice(0, 100), blockStats,
   });
 }
 
@@ -212,6 +226,7 @@ chrome.notifications.onButtonClicked.addListener(async (id, btnIdx) => {
     await chrome.storage.local.set({ rules });
   }
   const n = await purgeDomain(dom);
+  if (n) await logDeletion({ domain: dom, count: n, source: "notification" });
   chrome.notifications.clear(id);
   chrome.notifications.create("cc-done-" + dom, {
     type: "basic", iconUrl: "icon128.png",
@@ -249,11 +264,13 @@ async function runAutoPurge() {
       await removeCookie(c); purged++;
     }
   }
-  if (purged) {
-    const { purgeLog = [] } = await chrome.storage.local.get("purgeLog");
-    purgeLog.unshift({ at: Date.now(), purged });
-    await chrome.storage.local.set({ purgeLog: purgeLog.slice(0, 50) });
-  }
+  if (purged) await logDeletion({ domain: "(auto-purge)", count: purged, source: "startup auto-purge" });
+}
+
+async function logDeletion(entry) {
+  const { deleteLog = [] } = await chrome.storage.local.get("deleteLog");
+  deleteLog.unshift({ at: Date.now(), ...entry });
+  await chrome.storage.local.set({ deleteLog: deleteLog.slice(0, 500) });
 }
 
 async function getAllCookies() {

@@ -121,7 +121,7 @@
     </section>
     <div class="cols3">
       <section class="card rule-card" data-rule="block">
-        <h2>Block list</h2>
+        <h2>Block list <span class="h-sub" id="block-total"></span></h2>
         <p class="dim">Cookies from these domains are deleted the instant a site sets them.</p>
         <ul class="rule-list"></ul>
         <form class="rule-add"><input placeholder="doubleclick.net" /><button class="btn accent sm">add</button></form>
@@ -139,6 +139,13 @@
         <form class="rule-add"><input placeholder="chase.com" /><button class="btn accent sm">add</button></form>
       </section>
     </div>
+    <section class="card">
+      <div class="dl-head">
+        <h2>Deletion log <span class="h-sub">what was deleted, and when</span></h2>
+        <button class="btn ghost sm" id="dl-clear">clear log</button>
+      </div>
+      <ul class="alert-log" id="delete-log"></ul>
+    </section>
     <section class="card">
       <h2>One-click presets</h2>
       <div class="preset-row">

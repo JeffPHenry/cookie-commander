@@ -1,6 +1,6 @@
 // Cookie editor: full CRUD, bulk delete, protected-domain guard.
 
-import { bare, removeCookie, setCookie, isProtected, fmtExpiry } from "./data.js";
+import { bare, removeCookie, setCookie, isProtected, fmtExpiry, logDeletions } from "./data.js";
 
 let state = null; // set by app.js: { rows, rules, refresh, toast }
 
@@ -68,6 +68,7 @@ function renderCookieRows(det, r) {
     row.querySelector(".btn.danger").addEventListener("click", async () => {
       if (isProtected(r.domain, state.rules) && !confirm(`${r.domain} is on your protected list (bank/broker). Delete "${c.name}" anyway? This may log you out.`)) return;
       await removeCookie(c);
+      await logDeletions([{ domain: r.domain, name: c.name, count: 1, source: "editor" }]);
       state.toast(`Deleted ${c.name} from ${r.domain}`);
       state.refresh();
     });
@@ -87,6 +88,7 @@ async function bulkDelete(r, prot) {
   } else if (!confirm(`Delete all ${r.cookies} cookies for ${r.domain}?`)) return;
   let n = 0;
   for (const c of r.list) { try { await removeCookie(c); n++; } catch {} }
+  if (n) await logDeletions([{ domain: r.domain, count: n, source: "delete all" }]);
   state.toast(`Deleted ${n} cookies from ${r.domain}`);
   state.refresh();
 }
@@ -101,7 +103,14 @@ export async function bulkDeleteRows(rows, label) {
   if (skipped.length) msg += `\n\nSkipping ${skipped.length} protected domain(s): ${skipped.map((s) => s.domain).join(", ")}`;
   if (!confirm(msg)) return;
   let n = 0;
-  for (const r of doomed) for (const c of r.list) { try { await removeCookie(c); n++; } catch {} }
+  const entries = [];
+  for (const r of doomed) {
+    let k = 0;
+    for (const c of r.list) { try { await removeCookie(c); k++; } catch {} }
+    n += k;
+    if (k) entries.push({ domain: r.domain, count: k, source: "bulk delete" });
+  }
+  await logDeletions(entries);
   state.toast(`Deleted ${n} cookies. Protected domains untouched.`);
   state.refresh();
 }

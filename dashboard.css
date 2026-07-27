@@ -367,6 +367,14 @@ td.dom:hover { color: #fff; text-decoration: underline; text-decoration-color: v
 .alert-log .row-menu { flex: none; opacity: 0; }
 .alert-log li:hover .row-menu { opacity: 1; }
 
+/* ---- kill counts & deletion log ---- */
+.bk-n { color: var(--rose); font: 600 10.5px var(--mono); margin-left: 6px; }
+.dl-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.dl-head h2 { margin-bottom: 0; }
+.dl-x { border: 0; background: none; color: var(--faint); cursor: pointer; font-size: 14px; flex: none; opacity: 0; }
+.alert-log li:hover .dl-x { opacity: 1; }
+.dl-x:hover { color: var(--danger); }
+
 /* ---- info page ---- */
 .info-page { width: min(780px, 94vw); max-height: 86vh; overflow-y: auto; }
 .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin-top: 4px; }

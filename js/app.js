@@ -1,12 +1,13 @@
 // App shell: tabs, overview, explore table, visualizations, rules. Editor lives in editor.js.
 
-import { loadEverything, saveRules, fmtAgo, fmtExpiry, isProtected, removeCookie } from "./data.js";
+import { loadEverything, saveRules, fmtAgo, fmtExpiry, isProtected, removeCookie, logDeletions } from "./data.js";
 import { lookup } from "./trackerdb.js";
 import { drawTreemap, drawGraph, drawHeatmap, stopViz } from "./viz.js";
 import { initEditor, renderEditor, initForm, bulkDeleteRows } from "./editor.js";
 
 const state = {
   rows: [], cookies: [], activity: {}, rules: { block: [], autoPurge: [], protected: [] },
+  blockStats: {}, deleteLog: [],
   refresh, toast,
 };
 
@@ -84,6 +85,7 @@ function renderOverview() {
     { key: "expired", n: expired, k: "already expired", sub: "stored anyway", flag: false },
     { key: "xsite", n: xsite, k: "sendable cross-site", sub: "SameSite=None", flag: true },
     { key: "reach", n: top?.reach ?? 0, k: "widest reach", sub: top?.domain ?? "—", flag: true },
+    { key: "blocked", n: killTotal(), k: "cookies blocked", sub: "kill count, live", flag: killTotal() > 0 },
   ];
   $("ov-tiles").innerHTML = tiles.map((t) => `
     <div class="tile${t.flag ? " flag" : ""}" data-tile="${t.key}" role="button" tabindex="0" title="click to open">
@@ -139,8 +141,13 @@ function gotoExplore(tier, sortK) {
   switchTab("explore");
 }
 
+function killTotal() {
+  return Object.values(state.blockStats).reduce((a, s) => a + (s.n ?? 0), 0);
+}
+
 function tilePrimary(key) {
-  if (key === "total") gotoExplore("all", "cookies");
+  if (key === "blocked") switchTab("rules");
+  else if (key === "total") gotoExplore("all", "cookies");
   else if (key === "trackers") gotoExplore("tracker", "reach");
   else if (key === "expired") gotoExplore("all", "expired");
   else if (key === "xsite") gotoExplore("tracker", "cookies");
@@ -166,6 +173,10 @@ function tileMenuItems(key) {
     case "xsite": return [
       ["View trackers in Explore", () => gotoExplore("tracker", "cookies")],
       ["Block ALL trackers", blockAllTrackers],
+    ];
+    case "blocked": return [
+      ["Open Rules & block list", () => switchTab("rules")],
+      ["Delete all cookies from blocked domains", purgeBlocked],
     ];
     case "reach": {
       const d = state.topTracker;
@@ -399,6 +410,7 @@ function renderInfoCookies(r) {
       if (isProtected(r.domain, state.rules) &&
         !confirm(`${r.domain} is protected (bank/broker). Delete "${c.name}" anyway? This may log you out.`)) return;
       await removeCookie(c);
+      await logDeletions([{ domain: r.domain, name: c.name, count: 1, source: "info page" }]);
       row.remove();
       $("info-ckcount").textContent = String(Math.max(0, Number($("info-ckcount").textContent) - 1));
       toast(`Deleted ${c.name}`);
@@ -511,11 +523,17 @@ function renderTimeline(el) {
 
 // ---- rules ----
 function renderRules() {
+  $("block-total").textContent = killTotal() ? killTotal().toLocaleString() + " cookies killed on arrival" : "";
   document.querySelectorAll(".rule-card").forEach((card) => {
     const key = card.dataset.rule;
     const ul = card.querySelector(".rule-list");
-    ul.innerHTML = state.rules[key].map((d, i) => `
-      <li><span>${esc(d)}</span><button data-i="${i}" title="remove">×</button></li>`).join("") ||
+    ul.innerHTML = state.rules[key].map((d, i) => {
+      const bs = key === "block" ? state.blockStats[d] : null;
+      const kills = bs?.n
+        ? ` <span class="bk-n" title="last kill ${fmtAgo(bs.last)}">${bs.n}× killed</span>`
+        : "";
+      return `<li><span>${esc(d)}${kills}</span><button data-i="${i}" title="remove">×</button></li>`;
+    }).join("") ||
       '<li class="empty" style="border:0;background:none">empty</li>';
     ul.querySelectorAll("button").forEach((b) =>
       b.addEventListener("click", async () => {
@@ -564,6 +582,7 @@ async function deleteExpired() {
   if (!confirm(`Delete ${dead.length} already-expired cookies? Zero risk — they're dead weight.`)) return;
   let n = 0;
   for (const c of dead) { try { await removeCookie(c); n++; } catch {} }
+  if (n) await logDeletions([{ domain: "(expired sweep)", count: n, source: "preset" }]);
   toast(`Cleared ${n} expired cookies`);
   refresh();
 }
@@ -581,10 +600,47 @@ $("rule-preset-purgeblocked").addEventListener("click", purgeBlocked);
 const ALERT_KEYS = ["enabled", "newTracker", "crossSite", "burst"];
 
 async function loadAlerts() {
-  const got = await chrome.storage.local.get(["alertCfg", "alertLog"]);
+  const got = await chrome.storage.local.get(["alertCfg", "alertLog", "blockStats", "deleteLog"]);
   state.alertCfg = got.alertCfg ?? { enabled: true, newTracker: true, crossSite: true, burst: true };
   state.alertLog = got.alertLog ?? [];
+  state.blockStats = got.blockStats ?? {};
+  state.deleteLog = got.deleteLog ?? [];
 }
+
+// ---- deletion log ----
+function renderDeleteLog() {
+  $("delete-log").innerHTML = state.deleteLog.slice(0, 200).map((e, i) => {
+    const pseudo = e.domain.startsWith("(");
+    const dom = pseudo
+      ? `<span class="mono al-dom">${esc(e.domain)}</span>`
+      : `<span class="lnk mono al-dom" data-d="${esc(e.domain)}" title="open info page">${esc(e.domain)}</span>`;
+    return `
+    <li>
+      <span class="mono dim al-when" title="${new Date(e.at).toLocaleString()}">${fmtAgo(e.at)}</span>
+      ${dom}
+      <span class="al-msg">${e.name ? esc(e.name) + " · " : ""}${e.count} cookie${e.count === 1 ? "" : "s"} · ${esc(e.source)}</span>
+      <button class="dl-x" data-i="${i}" title="remove this record">×</button>
+    </li>`;
+  }).join("") || '<li class="empty">Nothing deleted yet — records appear here with dates as you clean house.</li>';
+}
+
+$("delete-log").addEventListener("click", async (e) => {
+  const x = e.target.closest(".dl-x");
+  if (!x) return;
+  state.deleteLog.splice(Number(x.dataset.i), 1);
+  await chrome.storage.local.set({ deleteLog: state.deleteLog });
+  renderDeleteLog();
+  toast("Record removed");
+});
+
+$("dl-clear").addEventListener("click", async () => {
+  if (!state.deleteLog.length) { toast("Log is already empty"); return; }
+  if (!confirm(`Clear all ${state.deleteLog.length} deletion records?`)) return;
+  state.deleteLog = [];
+  await chrome.storage.local.set({ deleteLog: [] });
+  renderDeleteLog();
+  toast("Deletion log cleared");
+});
 
 function renderAlerts() {
   ALERT_KEYS.forEach((k) => { $("al-" + k).checked = !!state.alertCfg[k]; });
@@ -648,6 +704,7 @@ async function refresh() {
   renderExplore();
   renderRules();
   renderAlerts();
+  renderDeleteLog();
   if (!$("panel-visualize").hidden) renderViz();
   if (!$("panel-editor").hidden) renderEditor();
 }

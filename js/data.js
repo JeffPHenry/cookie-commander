@@ -187,6 +187,14 @@ function restoreCookie(c) {
   return chrome.cookies.set(d);
 }
 
+// Deletion ledger: every user-initiated removal gets a dated record (capped at 500).
+export async function logDeletions(entries) {
+  if (!entries.length) return;
+  const { deleteLog = [] } = await chrome.storage.local.get("deleteLog");
+  const stamped = entries.map((e) => ({ at: Date.now(), ...e }));
+  await chrome.storage.local.set({ deleteLog: [...stamped, ...deleteLog].slice(0, 500) });
+}
+
 export function fmtAgo(ms) {
   if (!ms) return "—";
   const s = (Date.now() - ms) / 1000;

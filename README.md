@@ -24,7 +24,7 @@ Chrome will warn that the extension can "read your browsing history" and "read a
 | Tab | What it does |
 |---|---|
 | **Overview** | Stat tiles, most-viewed (history × cookies), most-active (writes/24h), most-recent, widest-reach trackers |
-| **Explore** | Every domain in a sortable, searchable table: cookies, reach, visits, last visit, writes, expiry. "Delete all shown" bulk-deletes the current filter |
+| **Explore** | Filter by trackers / **ad-serving** / shared / first-party. Every domain in a sortable, searchable table: cookies, reach, visits, last visit, writes, expiry. "Delete all shown" bulk-deletes the current filter |
 | **Visualize** | Force-directed tracker reach graph, treemap, expiry timeline, 14-day activity heatmap |
 | **Editor** | Full CRUD: inspect (values masked until clicked), edit any field, create, delete one or a whole domain |
 | **Rules** | Alarm mode (desktop notifications with Block/Delete buttons when new trackers appear), block list, auto-purge on startup, protected domains |

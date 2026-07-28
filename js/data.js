@@ -1,5 +1,7 @@
 // Data layer: cookies + history + activity, joined into per-domain stats.
 
+import { isAdServing } from "./trackerdb.js";
+
 export function bare(d) {
   return d.startsWith(".") ? d.slice(1) : d;
 }
@@ -112,6 +114,7 @@ export function buildStats(cookies, byHost, activity) {
       reach,
       reachSites: [...s.reach],
       tier: reach >= 5 ? "tracker" : reach >= 2 ? "shared" : "first-party",
+      adServing: isAdServing(s.domain),
       expired: s.expired,
       session: s.session,
       secure: s.secure,

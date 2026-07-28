@@ -32,6 +32,7 @@ function renderDomainList() {
         <span class="ed-name mono lnk" data-d="${esc(r.domain)}" title="open info page">${esc(r.domain)}</span>
         ${prot ? '<span class="chip prot">protected</span>' : ""}
         <span class="chip ${r.tier === "tracker" ? "t3" : r.tier === "shared" ? "t2" : "t1"}">${r.tier}</span>
+        ${r.adServing ? '<span class="chip ad">ad</span>' : ""}
         <span class="ed-count mono">${r.cookies}</span>
         <button class="btn danger sm ed-nuke" data-d="${esc(r.domain)}">delete all</button>
       </summary>

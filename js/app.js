@@ -281,7 +281,7 @@ let exSort = { k: "cookies", dir: "desc" }, exTier = "all";
 function exFiltered() {
   const q = $("ex-q").value.trim().toLowerCase();
   return state.rows.filter((r) =>
-    (exTier === "all" || r.tier === exTier) &&
+    (exTier === "all" || (exTier === "ad" ? r.adServing : r.tier === exTier)) &&
     (!q || r.domain.toLowerCase().includes(q)));
 }
 
@@ -299,6 +299,7 @@ function renderExplore() {
     <tr>
       <td class="dom lnk" data-d="${esc(r.domain)}" title="open info page for ${esc(r.domain)}">${esc(r.domain)}</td>
       <td><span class="chip ${r.tier === "tracker" ? "t3" : r.tier === "shared" ? "t2" : "t1"}">${r.tier}</span>
+          ${r.adServing ? '<span class="chip ad">ad</span>' : ""}
           ${isProtected(r.domain, state.rules) ? '<span class="chip prot">prot</span>' : ""}
           <button class="info-btn" data-d="${esc(r.domain)}" title="what is ${esc(r.domain)}?">i</button></td>
       <td class="num">${r.cookies}</td>
@@ -571,6 +572,18 @@ async function blockAllTrackers() {
   toast(`Blocking ${fresh.length} trackers — their cookies now die on arrival`);
 }
 $("rule-preset-trackers").addEventListener("click", blockAllTrackers);
+
+async function blockAllAdServing() {
+  const ads = state.rows.filter((r) => r.adServing).map((r) => r.domain);
+  const fresh = ads.filter((d) => !state.rules.block.includes(d));
+  if (!fresh.length) { toast("All current ad-serving domains already blocked"); return; }
+  if (!confirm(`Block ${fresh.length} known ad-serving domains? Nothing you log into is on this list.\n\n${fresh.slice(0, 12).join(", ")}${fresh.length > 12 ? "…" : ""}`)) return;
+  state.rules.block.push(...fresh);
+  await saveRules(state.rules);
+  renderRules();
+  toast(`Blocking ${fresh.length} ad-serving domains — their cookies now die on arrival`);
+}
+$("rule-preset-adserving").addEventListener("click", blockAllAdServing);
 
 async function deleteExpired() {
   const now = Date.now() / 1000;

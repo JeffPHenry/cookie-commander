@@ -81,6 +81,21 @@ const GENERIC = {
   "first-party": () => `Only seen on its own site — these are ordinary cookies from somewhere you actually visited: logins, preferences, shopping carts, and the site's own analytics.`,
 };
 
+// "Ad-serving" = known domains whose business is serving/buying/selling ads.
+// Deliberately excludes platforms people log into (google.com, facebook.com),
+// analytics, consent tools, and DMP/identity services.
+const AD_CATS = /ad exchange|ad platform|ad serving|ad conversion|dsp|retargeting|rtb routing|content recommendation|video ads|contextual ads|ad verification/i;
+
+export function isAdServing(domain) {
+  let probe = String(domain).toLowerCase();
+  while (probe.includes(".")) {
+    const e = DB[probe];
+    if (e) return AD_CATS.test(e.cat);
+    probe = probe.slice(probe.indexOf(".") + 1);
+  }
+  return false;
+}
+
 export function lookup(row) {
   const d = row.domain.toLowerCase();
   let probe = d;

@@ -140,6 +140,7 @@ h1 em {
 .chip.t2 { background: rgba(232,150,62,.14); color: #f0ad64; box-shadow: inset 0 0 0 1px rgba(232,150,62,.3); }
 .chip.t1 { background: rgba(110,120,160,.16); color: #9aa3c0; box-shadow: inset 0 0 0 1px rgba(110,120,160,.3); }
 .chip.prot { background: rgba(62,207,154,.13); color: #5fdcb0; box-shadow: inset 0 0 0 1px rgba(62,207,154,.3); }
+.chip.ad { background: rgba(139,92,246,.15); color: #b9a5f7; box-shadow: inset 0 0 0 1px rgba(139,92,246,.35); }
 
 /* ---- controls ---- */
 .controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }

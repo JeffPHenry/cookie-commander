@@ -1,6 +1,6 @@
 // Cookie editor: full CRUD, bulk delete, protected-domain guard.
 
-import { bare, removeCookie, setCookie, isProtected, fmtExpiry, logDeletions } from "./data.js";
+import { bare, removeCookie, setCookie, isProtected, fmtExpiry, logDeletions, blockedChip } from "./data.js";
 
 let state = null; // set by app.js: { rows, rules, refresh, toast }
 
@@ -33,6 +33,7 @@ function renderDomainList() {
         ${prot ? '<span class="chip prot">protected</span>' : ""}
         <span class="chip ${r.tier === "tracker" ? "t3" : r.tier === "shared" ? "t2" : "t1"}">${r.tier}</span>
         ${r.adServing ? '<span class="chip ad">ad</span>' : ""}
+        ${blockedChip(r.domain, state.rules, state.blockStats ?? {})}
         <span class="ed-count mono">${r.cookies}</span>
         <button class="btn danger sm ed-nuke" data-d="${esc(r.domain)}">delete all</button>
       </summary>

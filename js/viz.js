@@ -1,6 +1,31 @@
 // Canvas visualizations: treemap, reach graph, heatmap. Timeline is DOM (in app.js).
 
+import { isBlocked } from "./data.js";
+
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+// Block state can't be a chip on canvas, so blocked marks get hatched and ✕-flagged.
+let blockCtx = { block: [] };
+export function setBlockContext(rules) { blockCtx = rules ?? { block: [] }; }
+const blocked = (domain) => isBlocked(domain, blockCtx);
+
+function hatch(ctx, x, y, w, h) {
+  if (w < 3 || h < 3) return;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x, y, w, h);
+  ctx.clip();
+  ctx.globalAlpha = 0.55;
+  ctx.strokeStyle = "#0b0d14";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  for (let i = -h; i < w; i += 7) {
+    ctx.moveTo(x + i, y + h);
+    ctx.lineTo(x + i + h, y);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
 
 function setupCanvas(canvas) {
   const dpr = window.devicePixelRatio || 1;
@@ -87,12 +112,17 @@ export function drawTreemap(canvas, rows, onHover, onClick, onMenu) {
     const g = ctx.createLinearGradient(rc.x, rc.y, rc.x, rc.y + rc.h);
     g.addColorStop(0, base + "e6");
     g.addColorStop(1, base + "99");
+    const isBlk = blocked(rc.r.domain);
+    ctx.save();
+    if (isBlk) ctx.globalAlpha = 0.45; // neutralized: drained of colour
     ctx.fillStyle = g;
     ctx.fillRect(rc.x + 1, rc.y + 1, Math.max(rc.w - 2, 0), Math.max(rc.h - 2, 0));
     // shine
     ctx.fillStyle = "rgba(255,255,255,.14)";
     ctx.fillRect(rc.x + 1, rc.y + 1, Math.max(rc.w - 2, 0), Math.min(3, rc.h - 2));
-    drawTreemapLabel(ctx, rc);
+    ctx.restore();
+    if (isBlk) hatch(ctx, rc.x + 1, rc.y + 1, Math.max(rc.w - 2, 0), Math.max(rc.h - 2, 0));
+    drawTreemapLabel(ctx, rc, isBlk);
   }
 
   const hitAt = (e) => {
@@ -119,7 +149,7 @@ export function drawTreemap(canvas, rows, onHover, onClick, onMenu) {
 
 // Adaptive treemap labels: font shrinks with the tile, tall slivers rotate
 // vertical, and only boxes too small for ~3 characters stay tooltip-only.
-function drawTreemapLabel(ctx, rc) {
+function drawTreemapLabel(ctx, rc, isBlk = false) {
   const vertical = rc.h > rc.w * 1.5 && rc.w < 44 && rc.h > 40;
   const availW = (vertical ? rc.h : rc.w) - 8;
   const availH = (vertical ? rc.w : rc.h) - 4;
@@ -127,9 +157,11 @@ function drawTreemapLabel(ctx, rc) {
   const fs = Math.max(7, Math.min(11, availH / 2.2, availW / 4));
   const maxChars = Math.floor(availW / (fs * 0.62));
   if (maxChars < 3) return;
-  const name = rc.r.domain.length > maxChars
-    ? rc.r.domain.slice(0, Math.max(2, maxChars - 1)) + "…"
-    : rc.r.domain;
+  const mark = isBlk ? "✕ " : "";
+  const room = maxChars - mark.length;
+  const name = mark + (rc.r.domain.length > room
+    ? rc.r.domain.slice(0, Math.max(2, room - 1)) + "…"
+    : rc.r.domain);
   ctx.save();
   ctx.font = `600 ${fs}px ui-monospace, Menlo, monospace`;
   ctx.fillStyle = css("--viz-label");
@@ -224,7 +256,8 @@ export function drawGraph(canvas, rows, onHover, onClick, onMenu) {
     ctx.stroke();
 
     for (const n of nodes) {
-      const color = n.type === "tracker" ? css("--viz-tracker") : css("--viz-site");
+      const nBlocked = n.type === "tracker" && blocked(n.id);
+      const color = nBlocked ? "#5a6076" : n.type === "tracker" ? css("--viz-tracker") : css("--viz-site");
       const g = ctx.createRadialGradient(n.x - n.r / 3, n.y - n.r / 3, 0, n.x, n.y, n.r);
       g.addColorStop(0, "#ffffff55");
       g.addColorStop(0.25, color);
@@ -234,12 +267,24 @@ export function drawGraph(canvas, rows, onHover, onClick, onMenu) {
       ctx.arc(n.x, n.y, n.r, 0, 6.29);
       ctx.fill();
       if (n.type === "tracker") {
-        ctx.shadowColor = color; ctx.shadowBlur = 12;
-        ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, 6.29); ctx.fill();
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = css("--viz-label");
+        if (!nBlocked) {
+          ctx.shadowColor = color; ctx.shadowBlur = 12;
+          ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, 6.29); ctx.fill();
+          ctx.shadowBlur = 0;
+        } else {
+          // struck through: the tracker is still there, but it can't hold an ID
+          ctx.strokeStyle = "#ff8496";
+          ctx.lineWidth = 1.6;
+          ctx.beginPath();
+          ctx.moveTo(n.x - n.r * 0.7, n.y - n.r * 0.7);
+          ctx.lineTo(n.x + n.r * 0.7, n.y + n.r * 0.7);
+          ctx.moveTo(n.x + n.r * 0.7, n.y - n.r * 0.7);
+          ctx.lineTo(n.x - n.r * 0.7, n.y + n.r * 0.7);
+          ctx.stroke();
+        }
+        ctx.fillStyle = nBlocked ? css("--viz-label-dim") : css("--viz-label");
         ctx.font = "600 10.5px ui-monospace, Menlo, monospace";
-        ctx.fillText(n.id, n.x + n.r + 4, n.y + 3);
+        ctx.fillText((nBlocked ? "✕ " : "") + n.id, n.x + n.r + 4, n.y + 3);
       }
     }
 
@@ -311,10 +356,12 @@ export function drawHeatmap(canvas, rows, activity, onHover, onClick, onMenu) {
   const cells = [];
   grid.forEach((row, i) => {
     const y = 24 + i * (cellH + cellGap);
-    ctx.fillStyle = css("--viz-label");
+    const rowBlocked = blocked(row.r.domain);
+    ctx.fillStyle = rowBlocked ? "#ff8496" : css("--viz-label");
     ctx.font = "11px ui-monospace, Menlo, monospace";
-    const name = row.r.domain.length > 26 ? row.r.domain.slice(0, 25) + "…" : row.r.domain;
-    ctx.fillText(name, 8, y + cellH / 2 + 4);
+    const mark = rowBlocked ? "✕ " : "";
+    const raw = row.r.domain.length > 26 - mark.length ? row.r.domain.slice(0, 25 - mark.length) + "…" : row.r.domain;
+    ctx.fillText(mark + raw, 8, y + cellH / 2 + 4);
     row.days.forEach((n, dIdx) => {
       const x = labelW + dIdx * (cellW + cellGap);
       const t = n / max;

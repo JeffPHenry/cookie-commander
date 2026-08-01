@@ -1,8 +1,8 @@
 // App shell: tabs, overview, explore table, visualizations, rules. Editor lives in editor.js.
 
-import { loadEverything, saveRules, fmtAgo, fmtExpiry, isProtected, removeCookie, logDeletions } from "./data.js";
+import { loadEverything, saveRules, fmtAgo, fmtExpiry, isProtected, isBlocked, blockedChip, removeCookie, logDeletions } from "./data.js";
 import { lookup } from "./trackerdb.js";
-import { drawTreemap, drawGraph, drawHeatmap, stopViz } from "./viz.js";
+import { drawTreemap, drawGraph, drawHeatmap, stopViz, setBlockContext } from "./viz.js";
 import { initEditor, renderEditor, initForm, bulkDeleteRows } from "./editor.js";
 
 const state = {
@@ -39,7 +39,8 @@ function showTip(row, cx, cy) {
     tip.innerHTML = `<div class="tt-title">${esc(row.domain)}</div>
       <div class="tt-dim">site you visited — ${row.trackers} of these trackers were on it</div>`;
   } else {
-    tip.innerHTML = `<div class="tt-title">${esc(row.domain)}</div>
+    const blk = isBlocked(row.domain, state.rules);
+    tip.innerHTML = `<div class="tt-title">${esc(row.domain)}${blk ? ' <span class="chip blk">✕ blocked</span>' : ""}</div>
       <div>${row.cookies} cookies · seen on ${row.reach} site${row.reach > 1 ? "s" : ""}</div>
       <div class="tt-dim">${row.visits ? row.visits + " visits · " : ""}${row.sameSiteNone} sendable cross-site</div>`;
   }
@@ -109,6 +110,7 @@ function renderOverview() {
     <li>
       <span class="rk">${i + 1}</span>
       <span class="dm lnk" data-d="${esc(x.domain)}">${esc(x.domain)}</span>
+      ${blockedChip(x.domain, state.rules, state.blockStats)}
       <span class="bar-track"><span class="bar" style="width:${(x.reach / maxReach) * 100}%"></span></span>
       <span class="val">${x.reach} sites · ${x.cookies} cookies</span>
     </li>`).join("") || '<p class="empty">No trackers found. Nice.</p>';
@@ -119,6 +121,7 @@ function ranked(id, rows, valFn, emptyMsg = "—") {
     <li>
       <span class="rk">${i + 1}</span>
       <span class="dm lnk" data-d="${esc(x.domain)}">${esc(x.domain)}</span>
+      ${blockedChip(x.domain, state.rules, state.blockStats)}
       <span class="val">${esc(valFn(x))}</span>
     </li>`).join("") || `<p class="empty">${esc(emptyMsg)}</p>`;
 }
@@ -300,6 +303,7 @@ function renderExplore() {
       <td class="dom lnk" data-d="${esc(r.domain)}" title="open info page for ${esc(r.domain)}">${esc(r.domain)}</td>
       <td><span class="chip ${r.tier === "tracker" ? "t3" : r.tier === "shared" ? "t2" : "t1"}">${r.tier}</span>
           ${r.adServing ? '<span class="chip ad">ad</span>' : ""}
+          ${blockedChip(r.domain, state.rules, state.blockStats)}
           ${isProtected(r.domain, state.rules) ? '<span class="chip prot">prot</span>' : ""}
           <button class="info-btn" data-d="${esc(r.domain)}" title="what is ${esc(r.domain)}?">i</button></td>
       <td class="num">${r.cookies}</td>
@@ -360,6 +364,10 @@ function openInfo(domain) {
   $("info-name").textContent = info.name;
   $("info-cat").textContent = info.cat;
   $("info-domain").textContent = r.domain;
+  $("info-flags").innerHTML =
+    (r.adServing ? '<span class="chip ad">ad</span>' : "") +
+    blockedChip(r.domain, state.rules, state.blockStats) +
+    (isProtected(r.domain, state.rules) ? '<span class="chip prot">protected</span>' : "");
   $("info-desc").textContent = info.desc;
 
   const cells = [
@@ -447,7 +455,7 @@ $("info-delete").addEventListener("click", () => {
 let vzMode = "graph";
 const VZ_NOTES = {
   graph: "Rose nodes are trackers; violet dots are sites you actually visited. Click a tracker for its info page, right-click for actions.",
-  treemap: "Rectangle size = cookie count. Click a box for its info page, right-click for actions.",
+  treemap: "Rectangle size = cookie count. Hatched + ✕ means blocked. Click a box for its info page, right-click for actions.",
   timeline: "When the stored cookies are set to die. Click a row to expand the domains inside it.",
   heatmap: "Cookie writes per domain per day, recorded live from install onward. Click a cell for that domain's info page, right-click for actions.",
 };
@@ -468,6 +476,7 @@ function renderViz() {
   const useCanvas = vzMode !== "timeline";
   canvas.hidden = !useCanvas;
   tl.hidden = useCanvas;
+  setBlockContext(state.rules);
   const vizMenu = (d, x, y) => openMenuAt(domainMenuItems(d), x, y);
   if (vzMode === "graph") drawGraph(canvas, state.rows, showTip, openInfo, vizMenu);
   else if (vzMode === "treemap") drawTreemap(canvas, state.rows, showTip, openInfo, vizMenu);
@@ -506,7 +515,7 @@ function renderTimeline(el) {
   el.innerHTML = buckets.map((b) => {
     const doms = [...b.doms.entries()].sort((a, z) => z[1] - a[1]);
     const chips = doms.slice(0, 80).map(([d, n]) =>
-      `<span class="site-chip lnk" data-d="${esc(d)}" title="open info page">${esc(d)} · ${n}</span>`).join("") +
+      `<span class="site-chip lnk${isBlocked(d, state.rules) ? " blk" : ""}" data-d="${esc(d)}" title="open info page">${isBlocked(d, state.rules) ? "✕ " : ""}${esc(d)} · ${n}</span>`).join("") +
       (doms.length > 80 ? `<span class="site-chip">+${doms.length - 80} more domains</span>` : "");
     return `
     <details class="tl-det">
@@ -661,6 +670,7 @@ function renderAlerts() {
     <li>
       <span class="mono dim al-when">${fmtAgo(e.at)}</span>
       <span class="lnk mono al-dom" data-d="${esc(e.domain)}" title="open info page for ${esc(e.domain)}">${esc(e.domain)}</span>
+      ${blockedChip(e.domain, state.rules, state.blockStats)}
       <span class="al-msg">${esc(e.msg)}</span>
       ${e.suppressed ? '<span class="chip t2">muted</span>' : ""}
       <button class="row-menu" data-d="${esc(e.domain)}" title="actions" aria-label="actions for ${esc(e.domain)}">⋮</button>

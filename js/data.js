@@ -46,7 +46,29 @@ export async function saveRules(rules) {
 
 export function isProtected(domain, rules) {
   const d = bare(domain);
-  return rules.protected.some((r) => d === r || d.endsWith("." + r));
+  return (rules.protected ?? []).some((r) => d === r || d.endsWith("." + r));
+}
+
+// Which block-list entry (if any) covers this domain — subdomains included.
+export function blockRuleFor(domain, rules) {
+  const d = bare(domain);
+  return (rules.block ?? []).find((r) => d === r || d.endsWith("." + r)) ?? null;
+}
+
+export function isBlocked(domain, rules) {
+  return !!blockRuleFor(domain, rules);
+}
+
+// Shared "blocked" badge, so the state reads the same everywhere a domain appears.
+export function blockedChip(domain, rules, blockStats = {}) {
+  const rule = blockRuleFor(domain, rules);
+  if (!rule) return "";
+  const kills = blockStats[rule]?.n ?? 0;
+  const via = rule === bare(domain) ? "" : ` (via ${rule})`;
+  const title = kills
+    ? `blocked${via} — ${kills} cookie${kills === 1 ? "" : "s"} killed on arrival`
+    : `blocked${via} — new cookies die on arrival`;
+  return `<span class="chip blk" title="${title}">✕ blocked${kills ? " " + kills : ""}</span>`;
 }
 
 // Walk history hosts up their label chain so www.chase.com visits land on .chase.com cookies.
